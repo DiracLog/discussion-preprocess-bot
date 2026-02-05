@@ -1,0 +1,10 @@
+chromadb
+discord.py
+faster_whisper
+huggingface_hub
+PyAudio
+python-dotenv
+torch
+webrtcvad-wheels
+discord-ext-voice-recv
+llama-cpp-python
