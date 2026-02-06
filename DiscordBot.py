@@ -285,6 +285,60 @@ async def cut(ctx):
     else:
         await ctx.send("No speech detected")
 
+@bot.command()
+async def ask(ctx, *, query):
+    """
+        Searches memory. You can tag a user to filter by them.
+        Usage: !ask @Alice arguments about SQL
+        """
+    target_user = None
+    message = ctx.message.mentions[0]
+    # 1. Check if a user was mentioned (tagged) in the message
+    if ctx.message.mentions:
+        target_user = message.display_name
+        query = query.replace(message.mention, "").strip()
+
+
+    loop = asyncio.get_running_loop()
+
+    def run_search():
+        # We pass the 'target_user' to the search function
+        return memory.search_memory(query_text=query, n_results=3, filter_user=target_user)
+
+    try:
+        results = await loop.run_in_executor(None, run_search)
+
+        if not results:
+            print("No relevant memories found")
+            return
+
+        embed = discord.Embed(
+            title=f"🧠 Recall: '{query}'",
+            color=0xF1C40F
+        )
+
+        if target_user:
+            embed.set_footer(text=f"Filtered for speaker: {target_user}")
+
+        for i, res in enumerate(results):
+            text = res.get('text', 'No text')
+            meta = res.get('metadata', {})
+            date = meta.get('date', 'Unknown')
+            speakers = meta.get('speaker_id', 'Unknown')
+
+            # Show the result
+            embed.add_field(
+                name=f"Topic {i + 1} ({date})",
+                value=f"**Speakers:** {speakers}\n📝 {text[:200]}...",
+                inline=False
+            )
+
+        await ctx.send(embed=embed)
+
+    except Exception as e:
+        print(f"Search failed: {e}")
+
+
 
 @bot.command()
 async def summarize(ctx):

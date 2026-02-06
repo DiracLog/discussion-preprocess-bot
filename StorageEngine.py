@@ -136,24 +136,38 @@ class StorageMind:
         else:
             print("⚠️ No arguments found to save.")
 
-    def search_memory(self, query_text, filters=None, n_results=3):
+    def search_memory(self, query_text, filter_user, n_results=3):
         """
         Args:
-            query_text (str): The semantic topic ("hard games").
-            filters (dict): Optional metadata rules ({"speaker": "Alex", "title": "Civ VI"}).
+            query_text (str): The semantic topic .
+            filter_user (str): speaker to filter for
         """
-        print(f"\n🔎 Searching for '{query_text}' with filters: {filters}...")
-
-        # ChromaDB requires the filter to be exactly in their format
-        # If filters is None, we pass None.
+        print(f"\n🔎 Searching for '{query_text}' with filters: {filter_user}...")
 
         results = self.collection.query(
             query_texts=[query_text],
-            n_results=n_results,
-            where=filters  # <--- This applies the metadata filter
+            n_results=n_results * 2
         )
 
-        return results
+        clean_results = []
+        for i in range(len(results['documents'][0])):
+            doc = results['documents'][0][i]
+            meta = results['metadatas'][0][i]
+
+            if filter_user:
+                stored_speakers = meta.get('speaker_id', "")
+                if filter_user not in stored_speakers:
+                    continue
+
+            clean_results.append({
+                'text': doc,
+                'metadata': meta
+            })
+
+            if len(clean_results) >= n_results:
+                break
+
+        return clean_results
 
     def reset_memory(self):
         """
