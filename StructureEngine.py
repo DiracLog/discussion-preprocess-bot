@@ -1,170 +1,221 @@
 import json
+import logging
+import re
 import time
+from dataclasses import dataclass, field
+from typing import List, Dict, Any, Optional
+
 from huggingface_hub import hf_hub_download
 from llama_cpp import Llama
-import re
-import textwrap
 
+
+# ---------------------- CONFIG ----------------------
+
+@dataclass
+class AnalystConfig:
+    repo_id: str = "TheBloke/Mistral-7B-Instruct-v0.2-GGUF"
+    filename: str = "mistral-7b-instruct-v0.2.Q4_K_M.gguf"
+    context_limit: int = 5000
+    chunk_size: int = 15000
+    overlap: int = 1000
+    max_tokens_standard: int = 4096
+    max_tokens_chunk: int = 1024
+    temperature: float = 0.1
+    n_ctx: int = 8192
+    n_gpu_layers: int = -1
+
+
+# ---------------------- MAIN CLASS ----------------------
 
 class StructureAnalyst:
-    def __init__(self, repo_id="TheBloke/Mistral-7B-Instruct-v0.2-GGUF",
-                 filename="mistral-7b-instruct-v0.2.Q4_K_M.gguf"):
-        print(f"⏳ Loading Analyst ({filename})...")
-        model_path = hf_hub_download(repo_id=repo_id, filename=filename)
-        self.context_limit = 5000
+    def __init__(self, config: AnalystConfig = AnalystConfig()):
+        self.config = config
+        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger.setLevel(logging.INFO)
+        if not self.logger.handlers:
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            handler.setFormatter(formatter)
+            self.logger.addHandler(handler)
 
+        self.logger.info(f"Downloading/Loading model: {config.filename}")
+        model_path = hf_hub_download(
+            repo_id=config.repo_id,
+            filename=config.filename
+        )
+
+        self.logger.info(f"Initializing Llama from: {model_path}")
         self.llm = Llama(
             model_path=model_path,
-            n_gpu_layers=-1,
-            n_ctx=8192,
-            verbose=True
+            n_gpu_layers=config.n_gpu_layers,
+            n_ctx=config.n_ctx,
+            verbose=False  # Set to True if C++ debug logs are needed
         )
-        print("✅ Analyst Loaded.")
+        self.logger.info("✅ Analyst Model loaded successfully.")
 
-    @staticmethod
-    def extract_json(txt):
+    # ---------------------- PUBLIC API ----------------------
+
+    def smart_summarize(self, text: str) -> Dict[str, Any]:
         """
-        Helper to clean markdown formatting from the LLM output.
+        Main entry point. Automatically decides between One-Shot or Map-Reduce.
         """
+        if self._is_short(text):
+            self.logger.info("🟢 Text fits context. Running standard analysis...")
+            return self._extract_structure(text)
 
-        pattern = r"```json(.*?)```"
-        match = re.search(pattern, txt, re.DOTALL)
+        self.logger.info(f"🔴 Long text detected. Engaging Map-Reduce...")
+        return self._map_reduce_analysis(text)
 
-        if match:
-            return match.group(1).strip()
+    # Legacy alias for backward compatibility if needed
+    def extract_structure(self, text: str) -> Dict[str, Any]:
+        return self.smart_summarize(text)
 
-        # find first outer { ... }
-        pattern_fallback = r"\{.*\}"
-        match_fallback = re.search(pattern_fallback, txt, re.DOTALL)
+    # ---------------------- INTERNAL LOGIC ----------------------
 
-        if match_fallback:
-            return match_fallback.group(0).strip()
+    def _is_short(self, text: str) -> bool:
+        estimated_tokens = len(text) // 4
+        return estimated_tokens < self.config.context_limit
 
-        return txt
+    def _map_reduce_analysis(self, text: str) -> Dict[str, Any]:
+        chunks = self._split_text(text)
+        summaries = []
 
-    def smart_summarize(self, full_text):
-        """
-        Decides whether to do a One-Shot or Map-Reduce summary based on length.
-        """
-        # token count ~ words/4
-        estimated_tokens = len(full_text) / 4
-
-        if estimated_tokens < self.context_limit:
-            print("🟢 Short text. Running standard analysis...")
-            return self.extract_structure(full_text)
-        else:
-            print(f"🔴 Long text ({int(estimated_tokens)} tokens). Engaging Map-Reduce...")
-            return self.map_reduce_analysis(full_text)
-
-    def map_reduce_analysis(self, text):
-        chunks = []
-        chunk_size = 15000
-        overlap = 1000
-
-        start = 0
-        while start < len(text):
-            end = min(start + chunk_size, len(text))
-            chunks.append(text[start:end])
-            if end == len(text): break
-            start += chunk_size - overlap
-
-        intermediate_summaries = []
-
-        # analyze each chunk separately, to not lose context
         for i, chunk in enumerate(chunks):
-            print(f"   🧠 Processing Chunk {i + 1}/{len(chunks)}...")
-            prompt = f"""[INST]
-                        АНАЛІЗ СЕГМЕНТУ (Raw Data Extraction).
-                        Твоє завдання — витягнути конкретні факти.
+            self.logger.info(f"🧠 Processing Chunk {i + 1}/{len(chunks)}...")
+            prompt = self._build_chunk_prompt(chunk)
+            response = self._generate(prompt, self.config.max_tokens_chunk)
+            summaries.append(response)
 
-                        1. Знайди всі згадки медіа (фільми, ігри, книги). Збережи оригінальну назву.
-                        2. Випиши цифрові оцінки (наприклад "8 з 10") дослівно.
-                        3. Випиши конкретні аргументи (чому сподобалось/не сподобалось).
+        self.logger.info("🔗 Combining chunk summaries...")
+        combined_text = "\n".join(summaries)
 
-                        ФОРМАТ ВІДПОВІДІ (Список):
-                        - Твір: [Назва] | Оцінка: [Число/Фраза] | Аргументи: [Теза 1, Теза 2]
-                        ...
+        # Final Pass: Extract clean JSON from the intermediate notes
+        return self._extract_structure(combined_text, is_notes=True)
 
-                        Якщо у цьому шматку немає обговорення творів, напиши "ПУСТО".
+    def _split_text(self, text: str) -> List[str]:
+        chunks = []
+        start = 0
+        text_len = len(text)
 
-                        ТЕКСТ СЕГМЕНТУ:
-                        {chunk}
-                        [/INST]"""
+        while start < text_len:
+            end = min(start + self.config.chunk_size, text_len)
+            chunks.append(text[start:end])
+            if end == text_len:
+                break
+            start += self.config.chunk_size - self.config.overlap
+        return chunks
 
-            response = self.llm(
-                prompt,
-                max_tokens=1024,
-                temperature=0.1,
-                stop=["</s>"],
-                top_p=0.95,
-                echo=False
-            )
-            text_result = response['choices'][0]['text']
-            intermediate_summaries.append(text_result)
+    def _extract_structure(self, text: str, is_notes: bool = False) -> Dict[str, Any]:
+        self.logger.info("🧠 Generating final structured JSON...")
+        prompt = self._build_main_prompt(text, is_notes)
+        raw_output = self._generate(prompt, self.config.max_tokens_standard)
 
-        # join chunks and summarise partitial summaries
-        print("   🔗 Combining summaries...")
-        combined_text = "\n".join(intermediate_summaries)
+        clean_json = self._clean_json_string(raw_output)
 
-        final_structure = self.extract_structure(combined_text, is_notes=True)
+        try:
+            return json.loads(clean_json)
+        except json.JSONDecodeError:
+            self.logger.error(f"❌ Failed to parse JSON. Raw output:\n{raw_output}")
+            # Return empty structure to prevent crash
+            return {"reviews": []}
 
-        return final_structure
+    # ---------------------- PROMPTS ----------------------
 
-    def extract_structure(self, transcription, is_notes=False):
-        print(f"\n🧠 Analyst is thinking... (Input length: {len(transcription)} chars)")
+    def _build_chunk_prompt(self, chunk: str) -> str:
+        return f"""[INST]
+АНАЛІЗ СЕГМЕНТУ (Raw Data Extraction).
+Твоє завдання — витягнути конкретні факти.
 
-        input_description = "Вхідний текст - це «сира» стенограма з Whisper (ASR)."
-        if is_notes:
-            input_description = "Вхідний текст - це попередньо зібрані нотатки (факти) з довгої розмови."
+1. Знайди всі згадки медіа (фільми, ігри, книги). Збережи оригінальну назву.
+2. Випиши цифрові оцінки (наприклад "8 з 10") дослівно.
+3. Випиши конкретні аргументи (чому сподобалось/не сподобалось) і ХТО це сказав (Спікер).
 
-        # TODO add extracting from db from same user and update info
-        system_prompt = f"""Ти - інтелектуальний редактор та аналітик розмов.
-               {input_description}
+ФОРМАТ ВІДПОВІДІ (Список):
+- Спікер: [Ім'я] | Твір: [Назва] | Оцінка: [Число/Фраза] | Думка: [Аргументи]
+...
 
-               Твоє завдання:
-               1. Знайти ВСІ обговорені твори.
-               2. Для кожного твору і КОЖНОГО спікера створити ОКРЕМИЙ запис. 
-               3. НЕ змішувати думки різних людей. Якщо Андрій і Олексій говорили про "Дюну", це має бути ДВА різних об'єкти в списку.
+Якщо у цьому шматку немає обговорення творів, напиши "ПУСТО".
 
-               Формат виводу: ТІЛЬКИ валідний JSON об'єкт (без markdown блоків ```json):
-               {{
-                 "reviews": [
-                   {{
-                     "title": "Назва твору",
-                     "type": "book/movie/game/series",
-                     "sentiment": "positive/negative/mixed",
-                     "arguments": ["Аргумент 1", ...],
-                     "mark": 8.5, 
-                     "is_inferred_score": true,
-                     "speaker": "Ім'я спікера (ОБОВ'ЯЗКОВО)" 
-                   }}
-                 ]
-               }}
-               """
+ТЕКСТ СЕГМЕНТУ:
+{chunk}
+[/INST]"""
 
-        user_prompt = f"ДАНІ ДЛЯ АНАЛІЗУ:\n{transcription}"
-        full_prompt = f"[INST] {system_prompt}\n\n{user_prompt} [/INST]"
+    def _build_main_prompt(self, text: str, is_notes: bool) -> str:
+        input_desc = "Це попередньо зібрані нотатки (факти) з довгої розмови." if is_notes else "Це сира стенограма (transcript)."
 
+        return f"""[INST]
+Ти - аналітик книжкового клубу.
+{input_desc}
+
+Твоє завдання:
+1. Знайти ВСІ обговорені твори.
+2. Для кожного твору і КОЖНОГО спікера створити ОКРЕМИЙ запис. 
+3. НЕ змішувати думки різних людей. Якщо Андрій і Олексій говорили про "Дюну", це має бути ДВА різних об'єкти в списку.
+
+Формат виводу: ТІЛЬКИ валідний JSON об'єкт (без markdown блоків ```json):
+{{
+  "reviews": [
+    {{
+      "title": "Назва твору",
+      "type": "book/movie/game/series",
+      "sentiment": "positive/negative/mixed",
+      "arguments": ["Аргумент 1", ...],
+      "mark": 8.5, 
+      "is_inferred_score": true,
+      "speaker": "Ім'я спікера (ОБОВ'ЯЗКОВО)" 
+    }}
+  ]
+}}
+
+ТЕКСТ ДЛЯ АНАЛІЗУ:
+{text}
+[/INST]"""
+
+    # ---------------------- LLM CORE ----------------------
+
+    def _generate(self, prompt: str, max_tokens: int) -> str:
         start_time = time.time()
+
         output = self.llm(
-            full_prompt,
-            max_tokens=4096,
-            temperature=0.1,
+            prompt,
+            max_tokens=max_tokens,
+            temperature=self.config.temperature,
             stop=["</s>"],
             echo=False
         )
-        print(f"⚡ LLM Inference complete in {time.time() - start_time:.2f} seconds.")
 
-        raw_text = output['choices'][0]['text'].strip()
-        clean_json_text = self.extract_json(raw_text)
+        duration = time.time() - start_time
+        self.logger.info(f"⚡ Inference complete in {duration:.2f}s")
 
-        try:
-            return json.loads(clean_json_text)
-        except json.JSONDecodeError:
-            print(f"❌ Model failed to generate valid JSON. Raw text:\n{raw_text}")
-            return {"reviews": []}  # Safe fallback
+        return output['choices'][0]['text'].strip()
 
+    # ---------------------- UTILS ----------------------
+
+    @staticmethod
+    def _clean_json_string(text: str) -> str:
+        # 1. Regex for markdown code blocks
+        json_block = re.search(r"```json\s*(.*?)```", text, re.DOTALL)
+        if json_block:
+            return json_block.group(1).strip()
+
+        # 2. Fallback: Find outer braces
+        first_brace = text.find("{")
+        last_brace = text.rfind("}")
+
+        if first_brace != -1 and last_brace != -1:
+            return text[first_brace:last_brace + 1]
+
+        return text
+
+
+# ---------------------- ENTRY POINT ----------------------
 
 if __name__ == "__main__":
-    a = StructureAnalyst()
-    print("Analyst ready.")
+    logging.basicConfig(level=logging.INFO)
+
+    # Simple test
+    analyst = StructureAnalyst()
+    dummy_text = "[10:00] Andrii: Дюна - це шедевр, 10/10. Alex: Не згоден, нудно, 5/10."
+
+    result = analyst.smart_summarize(dummy_text)
+    print(json.dumps(result, indent=2, ensure_ascii=False))
