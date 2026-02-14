@@ -5,6 +5,7 @@ import os
 import json
 import uuid
 
+
 class StorageMind:
     def __init__(self, db_path="club_memory_db", logs_dir="logs_archive"):
         """
@@ -59,23 +60,32 @@ class StorageMind:
         Args:
             analysis_json (dict): A SINGLE review object (title, mark, arguments, etc.)
             original_transcription (str): The raw text context.
-            speaker_id (str): Who spoke.
+            speaker_id (str): Fallback speaker (usually list of all participants).
             meeting_date (str): YYYY-MM-DD.
             full_log_id (str): The UUID/Filename of the complete JSON log on disk (Cold Storage).
         """
         # --- ROBUST EXTRACTION ---
 
-        # 1. Handle Title (Can be string OR list)
+        # 1. Handle Speaker (CRITICAL CHANGE)
+        # Prioritize the speaker identified by the LLM inside the JSON.
+        # If missing, fall back to the generic list passed by the bot.
+        specific_speaker = analysis_json.get("speaker")
+        if specific_speaker:
+            final_speaker = specific_speaker
+        else:
+            final_speaker = speaker_id
+
+        # 2. Handle Title (Can be string OR list)
         raw_title = analysis_json.get("title") or "Unknown Title"
         if isinstance(raw_title, list):
             title = ", ".join([str(t) for t in raw_title])
         else:
             title = str(raw_title)
 
-        # 2. Handle Sentiment
+        # 3. Handle Sentiment
         sentiment = analysis_json.get("sentiment") or "neutral"
 
-        # 3. Handle Mark (Int)
+        # 4. Handle Mark (Int)
         mark = analysis_json.get("mark")
         if mark is None:
             mark = 0
@@ -85,8 +95,7 @@ class StorageMind:
             except:
                 mark = 0
 
-        # 4. Handle "Is Inferred Score" (New Field)
-        # We convert bool to string or int because some DB versions struggle with raw Booleans in metadata
+        # 5. Handle "Is Inferred Score" (New Field)
         is_inferred = analysis_json.get("is_inferred_score", False)
 
         # 6. Handle Arguments
@@ -97,7 +106,7 @@ class StorageMind:
         if meeting_date is None:
             meeting_date = datetime.now().strftime("%Y-%m-%d")
 
-        print(f"💾 Saving {len(arguments)} thoughts about '{title}' by {speaker_id}...")
+        print(f"💾 Saving {len(arguments)} thoughts about '{title}' by {final_speaker}...")
 
         documents = []
         metadatas = []
@@ -106,6 +115,9 @@ class StorageMind:
         for arg in arguments:
             # The thought itself is the vector
             documents.append(arg)
+
+            # Create a deterministic ID based on content to prevent duplicates
+            # We include the log_id so different sessions are unique even if arguments are identical
             unique_string = f"{full_log_id}_{title}_{arg}"
             deterministic_id = hashlib.md5(unique_string.encode()).hexdigest()
 
@@ -114,12 +126,11 @@ class StorageMind:
                 "title": title,
                 "sentiment": sentiment,
                 "mark": mark,
-                "is_inferred_score": is_inferred,  # <--- New Field
-                "full_log_id": str(full_log_id),  # <--- New Field (Link to Cold Storage)
-                "speaker": speaker_id,
+                "is_inferred_score": is_inferred,
+                "full_log_id": str(full_log_id),
+                "speaker": final_speaker,  # <--- Now uses the specific speaker
                 "date": meeting_date,
                 "timestamp": datetime.now().isoformat(),
-                # We keep a tiny snippet just for quick context in the Vector DB
                 "source_snippet": original_transcription[:100] + "..."
             })
 
@@ -136,27 +147,38 @@ class StorageMind:
         else:
             print("⚠️ No arguments found to save.")
 
-    def search_memory(self, query_text, filter_user, n_results=3):
+    def search_memory(self, query_text, filter_user=None, n_results=3):
         """
         Args:
-            query_text (str): The semantic topic .
-            filter_user (str): speaker to filter for
+            query_text (str): The semantic topic.
+            filter_user (str): speaker to filter for (Optional).
         """
-        print(f"\n🔎 Searching for '{query_text}' with filters: {filter_user}...")
+        print(f"\n🔎 Searching for '{query_text}' (Filter: {filter_user})...")
 
+        # Basic query
         results = self.collection.query(
             query_texts=[query_text],
-            n_results=n_results * 2
+            n_results=n_results * 2  # Fetch more candidates to filter manually if needed
         )
 
         clean_results = []
-        for i in range(len(results['documents'][0])):
-            doc = results['documents'][0][i]
-            meta = results['metadatas'][0][i]
 
+        # Chroma returns [[doc1, doc2]] for documents and metadatas
+        if not results['documents']:
+            return []
+
+        doc_list = results['documents'][0]
+        meta_list = results['metadatas'][0]
+
+        for i in range(len(doc_list)):
+            doc = doc_list[i]
+            meta = meta_list[i]
+
+            # Manual Filter Logic
             if filter_user:
-                stored_speakers = meta.get('speaker_id', "")
-                if filter_user not in stored_speakers:
+                stored_speaker = meta.get('speaker', "")
+                # Simple substring match (e.g. "Andrii" matches "Andrii")
+                if filter_user.lower() not in stored_speaker.lower():
                     continue
 
             clean_results.append({
@@ -172,19 +194,13 @@ class StorageMind:
     def reset_memory(self):
         """
         DANGER: Completely wipes the database.
-        Use this when testing or if you want to clear old duplicate data.
         """
         print("\n⚠️ WARNING: Wiping all memories...")
         try:
-            # delete_collection removes the index and all data from the disk
             self.client.delete_collection(name="book_club_discussions")
         except ValueError:
-            # ValueError occurs if the collection doesn't exist.
-            # We ignore this because our goal is to have it gone anyway.
-            print("   (Collection didn't exist, skipping delete)")
             pass
 
-        # Re-create the empty collection immediately
         self.collection = self.client.get_or_create_collection(name="book_club_discussions")
         print("✅ Memory wiped clean. The Brain is empty.")
 
@@ -192,23 +208,20 @@ class StorageMind:
         """
         Retrieves the complete original transcript from Cold Storage (JSON).
         """
-        # 1. Construct the filename based on your saving logic
-        # You previously used: f"{self.logs_dir}/log_{timestamp}_{session_id}.json"
-        # So we need to find the file that contains this ID.
+        search_dir = self.logs_dir
 
-        search_dir = "logs_archive"  # Or whatever folder you set
-
-        # Simple search (In production, you'd store the exact path)
         for filename in os.listdir(search_dir):
             if full_log_id in filename:
                 full_path = os.path.join(search_dir, filename)
-
-                with open(full_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    return data['transcript']  # Return the full text
+                try:
+                    with open(full_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        return data['transcript']
+                except Exception as e:
+                    return f"Error reading log: {e}"
 
         return "⚠️ Error: Original log file not found."
 
+
 if __name__ == "__main__":
     db = StorageMind()
-    # db.reset_memory() # Uncomment to wipe
