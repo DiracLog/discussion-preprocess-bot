@@ -1,13 +1,34 @@
-
+# Environment
 .env
+
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
 venv/
 .venv/
+
+# Audio buffers
 temp_pcm/
 recordings/
 processed/
 obsolete/
+
+# Storage / databases
 club_memory_db/
+logs_archive/
+
+# Models (very important — prevents huge commits)
+models/
+*.gguf
+
+# IDE
 .idea/
 .vscode/
+
+# OS
+.DS_Store
+Thumbs.db
