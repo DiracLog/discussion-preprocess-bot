@@ -17,35 +17,36 @@ class StructureAnalyst:
             model_path=model_path,
             n_gpu_layers=-1,
             n_ctx=8192,
-            verbose=True  # Keeps C++ logs enabled just in case
+            verbose=True
         )
         print("✅ Analyst Loaded.")
 
     @staticmethod
     def extract_json(txt):
-        # 1. Try to find a JSON block inside Markdown tags
+        """
+        Helper to clean markdown formatting from the LLM output.
+        """
+
         pattern = r"```json(.*?)```"
         match = re.search(pattern, txt, re.DOTALL)
 
         if match:
             return match.group(1).strip()
 
-        # 2. Fallback: Look for the first outer curly braces { ... }
-        # This saves you if the model forgets the Markdown tags entirely
+        # find first outer { ... }
         pattern_fallback = r"\{.*\}"
         match_fallback = re.search(pattern_fallback, txt, re.DOTALL)
 
         if match_fallback:
             return match_fallback.group(0).strip()
 
-        return txt  # Return original if nothing found (will likely error in json.loads)
+        return txt
 
     def smart_summarize(self, full_text):
         """
-        Decides whether to do a One-Shot or Map-Reduce summary
-        based on length.
+        Decides whether to do a One-Shot or Map-Reduce summary based on length.
         """
-        # 1. Estimate Token Count (Roughly 4 chars per token)
+        # token count ~ words/4
         estimated_tokens = len(full_text) / 4
 
         if estimated_tokens < self.context_limit:
@@ -56,8 +57,6 @@ class StructureAnalyst:
             return self.map_reduce_analysis(full_text)
 
     def map_reduce_analysis(self, text):
-        # STEP 1: CHUNK IT
-        # Split into chunks of ~15,000 characters (approx 4k tokens)
         chunks = []
         chunk_size = 15000
         overlap = 1000
@@ -69,10 +68,9 @@ class StructureAnalyst:
             if end == len(text): break
             start += chunk_size - overlap
 
-
         intermediate_summaries = []
 
-        # STEP 2: MAP (Process each chunk)
+        # analyze each chunk separately, to not lose context
         for i, chunk in enumerate(chunks):
             print(f"   🧠 Processing Chunk {i + 1}/{len(chunks)}...")
             prompt = f"""[INST]
@@ -92,62 +90,62 @@ class StructureAnalyst:
                         ТЕКСТ СЕГМЕНТУ:
                         {chunk}
                         [/INST]"""
-            # Call your LLM here (assuming self.llm is your model function)
-            # Виклик моделі
+
             response = self.llm(
                 prompt,
                 max_tokens=1024,
                 temperature=0.1,
                 stop=["</s>"],
                 top_p=0.95,
-                echo=False  # dont repeat prompt
+                echo=False
             )
             text_result = response['choices'][0]['text']
             intermediate_summaries.append(text_result)
 
-        # STEP 3: REDUCE (Combine)
+        # join chunks and summarise partitial summaries
         print("   🔗 Combining summaries...")
         combined_text = "\n".join(intermediate_summaries)
 
-        # Final Pass: Extract the clean JSON structure from the combined notes
         final_structure = self.extract_structure(combined_text, is_notes=True)
 
         return final_structure
 
-
     def extract_structure(self, transcription, is_notes=False):
+        print(f"\n🧠 Analyst is thinking... (Input length: {len(transcription)} chars)")
+
         input_description = "Вхідний текст - це «сира» стенограма з Whisper (ASR)."
         if is_notes:
             input_description = "Вхідний текст - це попередньо зібрані нотатки (факти) з довгої розмови."
 
+        # TODO add extracting from db from same user and update info
         system_prompt = f"""Ти - інтелектуальний редактор та аналітик розмов.
-                {input_description}
+               {input_description}
 
-                Твоє завдання:
-                1. Сформувати фінальний JSON з усіма обговореними творами.
-                2. Якщо це нотатки, об'єднай дублікати (якщо один твір згадується у кількох шматках).
-                3. ВИПРАВИТИ назви та нормалізувати оцінки.
+               Твоє завдання:
+               1. Знайти ВСІ обговорені твори.
+               2. Для кожного твору і КОЖНОГО спікера створити ОКРЕМИЙ запис. 
+               3. НЕ змішувати думки різних людей. Якщо Андрій і Олексій говорили про "Дюну", це має бути ДВА різних об'єкти в списку.
 
-                Формат виводу: ТІЛЬКИ валідний JSON об'єкт (без markdown блоків ```json):
-                {{
-                  "reviews": [
-                    {{
-                      "title": "Назва твору",
-                      "type": "book/movie/game/series",
-                      "sentiment": "positive/negative/mixed",
-                      "arguments": ["Аргумент 1", ...],
-                      "mark": 8.5, 
-                      "is_inferred_score": true
-                    }}
-                  ]
-                }}
-                """
+               Формат виводу: ТІЛЬКИ валідний JSON об'єкт (без markdown блоків ```json):
+               {{
+                 "reviews": [
+                   {{
+                     "title": "Назва твору",
+                     "type": "book/movie/game/series",
+                     "sentiment": "positive/negative/mixed",
+                     "arguments": ["Аргумент 1", ...],
+                     "mark": 8.5, 
+                     "is_inferred_score": true,
+                     "speaker": "Ім'я спікера (ОБОВ'ЯЗКОВО)" 
+                   }}
+                 ]
+               }}
+               """
 
         user_prompt = f"ДАНІ ДЛЯ АНАЛІЗУ:\n{transcription}"
         full_prompt = f"[INST] {system_prompt}\n\n{user_prompt} [/INST]"
 
         start_time = time.time()
-
         output = self.llm(
             full_prompt,
             max_tokens=4096,
@@ -155,20 +153,16 @@ class StructureAnalyst:
             stop=["</s>"],
             echo=False
         )
-
-        end_time = time.time()
-        print(f"   ⚡ LLM Inference complete in {end_time - start_time:.2f} seconds.")
+        print(f"⚡ LLM Inference complete in {time.time() - start_time:.2f} seconds.")
 
         raw_text = output['choices'][0]['text'].strip()
-
         clean_json_text = self.extract_json(raw_text)
 
         try:
-            data = json.loads(clean_json_text)
-            return data
+            return json.loads(clean_json_text)
         except json.JSONDecodeError:
             print(f"❌ Model failed to generate valid JSON. Raw text:\n{raw_text}")
-            return None
+            return {"reviews": []}  # Safe fallback
 
 
 if __name__ == "__main__":
