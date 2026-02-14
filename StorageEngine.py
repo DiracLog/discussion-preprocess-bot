@@ -1,183 +1,161 @@
 import chromadb
-from datetime import datetime
 import hashlib
-import os
 import json
+import logging
+import os
 import uuid
+from dataclasses import dataclass
+from datetime import datetime
+from typing import List, Dict, Any, Optional
 
+
+# ---------------------- CONFIG ----------------------
+
+@dataclass
+class StorageConfig:
+    db_path: str = "club_memory_db"
+    collection_name: str = "book_club_discussions"
+    logs_dir: str = "logs_archive"
+    # Determines if we want to print verbose logs
+    verbose: bool = True
+
+
+# ---------------------- MAIN CLASS ----------------------
 
 class StorageMind:
-    def __init__(self, db_path="club_memory_db", logs_dir="logs_archive"):
-        """
-        Initializes the Vector Database (ChromaDB).
-        Args:
-            db_path: Folder where data will be saved locally.
-        """
-        print(f"⏳ Opening Brain at '{db_path}'...")
-        # PersistentClient saves data to disk so it survives restarts
-        self.client = chromadb.PersistentClient(path=db_path)
+    def __init__(self, config: StorageConfig = StorageConfig()):
+        self.config = config
+        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger.setLevel(logging.INFO if config.verbose else logging.WARNING)
 
-        # Create or Get the collection (Table)
-        self.collection = self.client.get_or_create_collection(name="book_club_discussions")
-        print("✅ Brain Loaded. Memory count:", self.collection.count())
+        # Ensure handlers don't duplicate if re-initialized
+        if not self.logger.handlers:
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            handler.setFormatter(formatter)
+            self.logger.addHandler(handler)
 
-        self.logs_dir = logs_dir
-        if not os.path.exists(self.logs_dir):
-            os.makedirs(self.logs_dir)
-            print(f"📁 Created cold storage at: {self.logs_dir}")
+        self._init_filesystem()
+        self._init_database()
 
-    def save_log_to_disk(self, transcript, analysis, user_name="Unknown"):
+    # ---------------------- INITIALIZATION ----------------------
+
+    def _init_filesystem(self):
+        """Ensures local storage directories exist."""
+        if not os.path.exists(self.config.logs_dir):
+            os.makedirs(self.config.logs_dir)
+            self.logger.info(f"📁 Created cold storage at: {self.config.logs_dir}")
+
+    def _init_database(self):
+        """Connects to ChromaDB and loads the collection."""
+        self.logger.info(f"⏳ Opening Brain at '{self.config.db_path}'...")
+        try:
+            self.client = chromadb.PersistentClient(path=self.config.db_path)
+            self.collection = self.client.get_or_create_collection(name=self.config.collection_name)
+            count = self.collection.count()
+            self.logger.info(f"✅ Brain Loaded. Memory count: {count}")
+        except Exception as e:
+            self.logger.error(f"❌ Failed to initialize ChromaDB: {e}")
+            raise e
+
+    # ---------------------- PUBLIC API ----------------------
+
+    def archive_session_log(self, transcript: str, analysis: Any, user_name: str = "Unknown") -> str:
         """
-        Saves the raw data to a JSON file and returns the ID.
-        Call this BEFORE saving to Vector DB.
+        Saves the raw session data to a JSON file (Cold Storage).
+        Returns the unique Session ID.
         """
-        # Generate the Master ID for this session
         session_id = str(uuid.uuid4())
         timestamp = int(datetime.now().timestamp())
 
-        # The full raw record
         log_entry = {
             "id": session_id,
             "timestamp": timestamp,
             "user": user_name,
-            "transcript": transcript,  # The full text!
-            "analysis": analysis  # The structured data
+            "transcript": transcript,
+            "analysis": analysis
         }
 
-        # Save to file
-        filename = f"{self.logs_dir}/log_{timestamp}_{session_id}.json"
-        with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(log_entry, f, ensure_ascii=False, indent=2)
+        filename = f"log_{timestamp}_{session_id}.json"
+        filepath = os.path.join(self.config.logs_dir, filename)
 
-        print(f"📄 Log saved to disk: {filename}")
-        return session_id  # <--- RETURN THIS so we can pass it to Vectors!
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(log_entry, f, ensure_ascii=False, indent=2)
+            self.logger.info(f"📄 Log archived: {filename}")
+            return session_id
+        except Exception as e:
+            self.logger.error(f"❌ Failed to archive log: {e}")
+            return session_id  # Return ID anyway so flow continues
 
-    def save_analysis(self, analysis_json, original_transcription, speaker_id="Unknown", meeting_date=None,
-                      full_log_id=None):
+    def store_insights(self, analysis_item: Dict[str, Any], original_transcription: str,
+                       speaker_id: str = "Unknown", meeting_date: Optional[str] = None,
+                       full_log_id: Optional[str] = None) -> None:
         """
-        Saves the structured data into the Vector DB.
-
-        Args:
-            analysis_json (dict): A SINGLE review object (title, mark, arguments, etc.)
-            original_transcription (str): The raw text context.
-            speaker_id (str): Fallback speaker (usually list of all participants).
-            meeting_date (str): YYYY-MM-DD.
-            full_log_id (str): The UUID/Filename of the complete JSON log on disk (Cold Storage).
+        Extracts arguments from an analysis item and saves them as vectors.
+        Replaces 'save_analysis'.
         """
-        # --- ROBUST EXTRACTION ---
+        # 1. Sanitize Inputs
+        meta_base = self._extract_metadata_base(analysis_item, speaker_id, meeting_date, full_log_id)
+        arguments = self._extract_arguments(analysis_item)
 
-        # 1. Handle Speaker (CRITICAL CHANGE)
-        # Prioritize the speaker identified by the LLM inside the JSON.
-        # If missing, fall back to the generic list passed by the bot.
-        specific_speaker = analysis_json.get("speaker")
-        if specific_speaker:
-            final_speaker = specific_speaker
-        else:
-            final_speaker = speaker_id
+        if not arguments:
+            self.logger.warning(f"⚠️ No arguments found to save for '{meta_base['title']}'.")
+            return
 
-        # 2. Handle Title (Can be string OR list)
-        raw_title = analysis_json.get("title") or "Unknown Title"
-        if isinstance(raw_title, list):
-            title = ", ".join([str(t) for t in raw_title])
-        else:
-            title = str(raw_title)
+        self.logger.info(
+            f"💾 Saving {len(arguments)} thoughts about '{meta_base['title']}' by {meta_base['speaker']}...")
 
-        # 3. Handle Sentiment
-        sentiment = analysis_json.get("sentiment") or "neutral"
-
-        # 4. Handle Mark (Int)
-        mark = analysis_json.get("mark")
-        if mark is None:
-            mark = 0
-        else:
-            try:
-                mark = int(mark)
-            except:
-                mark = 0
-
-        # 5. Handle "Is Inferred Score" (New Field)
-        is_inferred = analysis_json.get("is_inferred_score", False)
-
-        # 6. Handle Arguments
-        arguments = analysis_json.get("arguments", [])
-        if isinstance(arguments, str):
-            arguments = [arguments]
-
-        if meeting_date is None:
-            meeting_date = datetime.now().strftime("%Y-%m-%d")
-
-        print(f"💾 Saving {len(arguments)} thoughts about '{title}' by {final_speaker}...")
-
+        # 2. Prepare Batch
         documents = []
         metadatas = []
         ids = []
 
         for arg in arguments:
-            # The thought itself is the vector
+            # Create a deterministic ID to prevent duplicates for the exact same thought in the same session
+            unique_string = f"{full_log_id}_{meta_base['title']}_{arg}"
+            doc_id = hashlib.md5(unique_string.encode()).hexdigest()
+
+            # Metadata copy for this specific document
+            meta = meta_base.copy()
+            meta["source_snippet"] = original_transcription[:100] + "..."
+
             documents.append(arg)
+            metadatas.append(meta)
+            ids.append(doc_id)
 
-            # Create a deterministic ID based on content to prevent duplicates
-            # We include the log_id so different sessions are unique even if arguments are identical
-            unique_string = f"{full_log_id}_{title}_{arg}"
-            deterministic_id = hashlib.md5(unique_string.encode()).hexdigest()
-
-            # Metadata for filtering
-            metadatas.append({
-                "title": title,
-                "sentiment": sentiment,
-                "mark": mark,
-                "is_inferred_score": is_inferred,
-                "full_log_id": str(full_log_id),
-                "speaker": final_speaker,  # <--- Now uses the specific speaker
-                "date": meeting_date,
-                "timestamp": datetime.now().isoformat(),
-                "source_snippet": original_transcription[:100] + "..."
-            })
-
-            # Unique ID for this specific argument vector
-            ids.append(deterministic_id)
-
+        # 3. Upsert to DB
         if documents:
             self.collection.upsert(
                 documents=documents,
                 metadatas=metadatas,
                 ids=ids
             )
-            print("✅ Saved successfully!")
-        else:
-            print("⚠️ No arguments found to save.")
+            self.logger.info("✅ Insights saved successfully!")
 
-    def search_memory(self, query_text, filter_user=None, n_results=3):
+    def search(self, query_text: str, filter_user: Optional[str] = None, n_results: int = 3) -> List[Dict[str, Any]]:
         """
-        Args:
-            query_text (str): The semantic topic.
-            filter_user (str): speaker to filter for (Optional).
+        Semantic search with optional user filtering.
         """
-        print(f"\n🔎 Searching for '{query_text}' (Filter: {filter_user})...")
+        self.logger.info(f"🔎 Searching for '{query_text}' (Filter: {filter_user})...")
 
-        # Basic query
         results = self.collection.query(
             query_texts=[query_text],
-            n_results=n_results * 2  # Fetch more candidates to filter manually if needed
+            n_results=n_results * 2  # Fetch extra to handle post-filtering
         )
 
         clean_results = []
 
-        # Chroma returns [[doc1, doc2]] for documents and metadatas
         if not results['documents']:
             return []
 
         doc_list = results['documents'][0]
         meta_list = results['metadatas'][0]
 
-        for i in range(len(doc_list)):
-            doc = doc_list[i]
-            meta = meta_list[i]
-
-            # Manual Filter Logic
+        for i, (doc, meta) in enumerate(zip(doc_list, meta_list)):
+            # Manual Filter Logic (Chroma's where clause is strict, soft filtering is safer for partial matches)
             if filter_user:
-                stored_speaker = meta.get('speaker', "")
-                # Simple substring match (e.g. "Andrii" matches "Andrii")
+                stored_speaker = str(meta.get('speaker', ""))
                 if filter_user.lower() not in stored_speaker.lower():
                     continue
 
@@ -191,37 +169,102 @@ class StorageMind:
 
         return clean_results
 
-    def reset_memory(self):
-        """
-        DANGER: Completely wipes the database.
-        """
-        print("\n⚠️ WARNING: Wiping all memories...")
-        try:
-            self.client.delete_collection(name="book_club_discussions")
-        except ValueError:
-            pass
-
-        self.collection = self.client.get_or_create_collection(name="book_club_discussions")
-        print("✅ Memory wiped clean. The Brain is empty.")
-
-    def get_full_context(self, full_log_id):
-        """
-        Retrieves the complete original transcript from Cold Storage (JSON).
-        """
-        search_dir = self.logs_dir
-
-        for filename in os.listdir(search_dir):
+    def retrieve_transcript(self, full_log_id: str) -> str:
+        """Retrieves full text from cold storage by ID."""
+        for filename in os.listdir(self.config.logs_dir):
             if full_log_id in filename:
-                full_path = os.path.join(search_dir, filename)
+                full_path = os.path.join(self.config.logs_dir, filename)
                 try:
                     with open(full_path, 'r', encoding='utf-8') as f:
                         data = json.load(f)
-                        return data['transcript']
+                        return data.get('transcript', "")
                 except Exception as e:
-                    return f"Error reading log: {e}"
+                    self.logger.error(f"Error reading log file: {e}")
+                    return ""
+        return "⚠️ Original log file not found."
 
-        return "⚠️ Error: Original log file not found."
+    def nuke_db(self):
+        """DANGER: Completely wipes the database."""
+        self.logger.warning("⚠️ Wiping all memories...")
+        try:
+            self.client.delete_collection(name=self.config.collection_name)
+        except ValueError:
+            pass  # Collection didn't exist
 
+        self.collection = self.client.get_or_create_collection(name=self.config.collection_name)
+        self.logger.info("✅ Memory wiped clean.")
+
+    # ---------------------- INTERNAL HELPERS ----------------------
+
+    def _extract_arguments(self, analysis_item: Dict[str, Any]) -> List[str]:
+        """Normalizes arguments into a list of strings."""
+        args = analysis_item.get("arguments", [])
+        if isinstance(args, str):
+            return [args]
+        return args
+
+    def _extract_metadata_base(self, item: Dict[str, Any], speaker_id: str, date: Optional[str],
+                               log_id: Optional[str]) -> Dict[str, Any]:
+        """
+        Sanitizes and prepares base metadata.
+        Handles missing keys, None values, and list flattening.
+        """
+        # 1. Speaker: Prefer item-specific speaker, fall back to global
+        final_speaker = item.get("speaker") or speaker_id
+
+        # 2. Title: Handle synonyms and lists
+        raw_title = item.get("title") or item.get("book_title") or "Unknown Title"
+        title = ", ".join([str(t) for t in raw_title]) if isinstance(raw_title, list) else str(raw_title)
+
+        # 3. Sentiment
+        sentiment = item.get("sentiment") or "neutral"
+
+        # 4. Mark: Ensure int
+        try:
+            mark = int(item.get("mark") or 0)
+        except (ValueError, TypeError):
+            mark = 0
+
+        # 5. Boolean flags
+        is_inferred = bool(item.get("is_inferred_score", False))
+
+        # 6. Date
+        if date is None:
+            date = datetime.now().strftime("%Y-%m-%d")
+
+        return {
+            "title": title,
+            "sentiment": sentiment,
+            "mark": mark,
+            "is_inferred_score": is_inferred,
+            "full_log_id": str(log_id or ""),
+            "speaker": final_speaker,
+            "date": date,
+            "timestamp": datetime.now().isoformat()
+        }
+
+
+# ---------------------- ENTRY POINT ----------------------
 
 if __name__ == "__main__":
+    # Test suite
+    logging.basicConfig(level=logging.INFO)
     db = StorageMind()
+
+    # Mock data
+    mock_data = {
+        "title": ["Dune", "Dune Part 2"],
+        "sentiment": "positive",
+        "arguments": ["Great visuals", "Slow pacing"],
+        "mark": None,
+        "speaker": "TestUser"
+    }
+
+    # Test save
+    log_id = db.archive_session_log("Raw transcript...", mock_data, "Tester")
+    db.store_insights(mock_data, "Raw transcript...", full_log_id=log_id)
+
+    # Test search
+    results = db.search("visuals")
+    for res in results:
+        print(f"Found: {res['text']} (Meta: {res['metadata']})")
