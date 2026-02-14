@@ -7,21 +7,24 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 
 @pytest.fixture
-def mock_ctx():
-    """
-    Creates a fake discord context that can be used in any test
-    """
-    ctx = MagicMock()
-    ctx.guild.id = 123
-    ctx.author.display_name = "Tester"
-    voice_channel = AsyncMock()
-    ctx.author.voice.channel = voice_channel 
-    mock_vc = MagicMock()
-    
-    mock_vc.listen = MagicMock()
-    voice_channel.connect.return_value = mock_vc
+def mock_interaction():
+    interaction = MagicMock()
 
-    ctx.send = AsyncMock()
-    ctx.guild.get_member.return_value = MagicMock(display_name="Alice")
-    
-    return ctx
+    interaction.guild_id = 123
+    interaction.guild = MagicMock(id=123)
+
+    interaction.user = MagicMock()
+    interaction.user.name = "Tester"
+    interaction.user.voice = MagicMock()
+    interaction.user.voice.channel = AsyncMock()
+
+    interaction.client = MagicMock()
+
+    interaction.response = MagicMock()
+    interaction.response.defer = AsyncMock()
+    interaction.response.send_message = AsyncMock()
+
+    interaction.followup = MagicMock()
+    interaction.followup.send = AsyncMock()
+
+    return interaction

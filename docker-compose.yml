@@ -1,8 +1,14 @@
-version: '3.8'
-
 services:
-  my-bot:
+  discussion-bot:
     build: .
+    container_name: discussion-bot
+    restart: always
+
     env_file:
       - .env
-    restart: always
+
+    volumes:
+      - ./recordings:/app/recordings
+      - ./processed:/app/processed
+      - ./logs_archive:/app/logs_archive
+      - ./club_memory_db:/app/club_memory_db

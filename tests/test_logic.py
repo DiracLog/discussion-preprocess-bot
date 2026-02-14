@@ -1,7 +1,7 @@
 import pytest
-from DiscordBot import create_session_report_embed
+from bott.embeds import create_session_report_embed
 
-# mock data
+
 SAMPLE_ANALYSIS = {
     "reviews": [
         {
@@ -13,18 +13,28 @@ SAMPLE_ANALYSIS = {
     ]
 }
 
+
 def test_report_generation_title():
     members = ["UserA", "UserB"]
     embed = create_session_report_embed(SAMPLE_ANALYSIS, members, "12345")
+
     assert "Club Meeting Report" in embed.title
-    assert embed.color.value == 3447003 
+    assert embed.color.value == 0x3498db
+
 
 def test_report_participants():
     members = ["Alice", "Bob"]
     embed = create_session_report_embed(SAMPLE_ANALYSIS, members, "123")
+
     assert "Alice, Bob" in embed.description
+
 
 def test_empty_analysis():
     empty_data = {"reviews": []}
     embed = create_session_report_embed(empty_data, [], "000")
+
     assert embed.title == "⚠️ Analysis Empty"
+
+def test_embed_fields_exist():
+    embed = create_session_report_embed(SAMPLE_ANALYSIS, ["User"], "1")
+    assert len(embed.fields) == 1

@@ -2,24 +2,27 @@
 FROM python:3.12
 
 ENV PYTHONUNBUFFERED=1
-# 2. Install Audio Drivers
-# We still need portaudio specifically for PyAudio, but GCC is already here.
-RUN apt-get update && \
-    apt-get install -y portaudio19-dev ffmpeg && \
-    rm -rf /var/lib/apt/lists/*
+ENV PYTHONDONTWRITEBYTECODE=1
 
-# 3. Work Directory
+# ---------- System dependencies ----------
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ffmpeg \
+        portaudio19-dev \
+        gcc \
+        g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---------- Workdir ----------
 WORKDIR /app
 
-# 4. Copy Requirements
+# ---------- Install dependencies ----------
 COPY requirements.txt .
-
-# 5. Install Python Dependencies
-RUN pip install --no-cache-dir --upgrade pip && \
+RUN pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# 6. Copy Code
+# ---------- Copy project ----------
 COPY . .
 
-# 7. Run
-CMD ["python", "DiscordBot.py"]
+# ---------- Entrypoint ----------
+CMD ["python", "-m", "bott.bot"]

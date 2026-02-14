@@ -1,42 +1,48 @@
 import pytest
-from unittest.mock import MagicMock, patch
-import DiscordBot 
-from DiscordBot import join, cut
+from unittest.mock import MagicMock, AsyncMock
+
+from bott.commands import join, cut
+
 
 @pytest.mark.asyncio
-async def test_join_command(mock_ctx):
-    # 1. Reset state
-    DiscordBot.active_sinks = {}
-    DiscordBot.session_history = {}
+async def test_join_command(mock_interaction):
+    bot = MagicMock()
+    mock_interaction.client = bot
+    mock_interaction.guild_id = 999
 
-    # 2. Run Command
-    mock_ctx.guild.id = 999
-    await join(mock_ctx)
+    # session manager mock
+    bot.session_manager = MagicMock()
 
-    # 3. Assertions
-    mock_ctx.author.voice.channel.connect.assert_called_once()
-    assert 999 in DiscordBot.active_sinks
+    # voice connect mock
+    voice_channel = AsyncMock()
+    mock_interaction.user.voice.channel = voice_channel
+    voice_client = MagicMock()
+    voice_channel.connect.return_value = voice_client
+
+    await join.run(mock_interaction)
+
+    voice_channel.connect.assert_called_once()
+    bot.session_manager.register_sink.assert_called_once()
+
 
 @pytest.mark.asyncio
-async def test_cut_command(mock_ctx):
-    # 1. Setup
-    guild_id = 888
-    mock_ctx.guild.id = guild_id
-    
-    # Mock the Sink
+async def test_cut_command(mock_interaction):
+    bot = MagicMock()
+    mock_interaction.client = bot
+    mock_interaction.guild_id = 888
+    mock_interaction.guild = MagicMock()
+
+    # fake sink
     mock_sink = MagicMock()
     mock_sink.save_and_clear_buffers.return_value = [(101, "audio.wav")]
-    DiscordBot.active_sinks = {guild_id: mock_sink}
-    DiscordBot.session_history = {guild_id: []}
 
-    # Mock the Transcriber
-    DiscordBot.transcriber = MagicMock()
-    DiscordBot.transcriber.transcribe_file.return_value = "Hello World"
+    bot.session_manager = MagicMock()
+    bot.session_manager.get_sink.return_value = mock_sink
 
-    # Mock Filesystem
-    with patch('shutil.move'), patch('os.path.exists', return_value=True):
-        await cut(mock_ctx)
+    bot.orchestrator = MagicMock()
+    bot.orchestrator.process_cut = AsyncMock(return_value="Hello World")
 
-    # 2. Assertions
-    history = DiscordBot.session_history[guild_id][0]
-    assert "Hello World" in history
+    await cut.run(mock_interaction)
+
+    bot.orchestrator.process_cut.assert_called_once()
+    mock_interaction.followup.send.assert_called()
