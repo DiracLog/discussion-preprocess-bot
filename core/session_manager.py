@@ -1,6 +1,6 @@
 import collections
 import logging
-from typing import Dict, List, Optional, Callable, Awaitable, Any
+from typing import Dict, List, Optional, Callable, Awaitable
 import asyncio
 from audio.sink import ScribeSink
 
@@ -13,7 +13,7 @@ class SessionManager:
         self.session_history: Dict[int, List[str]] = collections.defaultdict(list)
 
         # guild_id -> active ScribeSink
-        self.active_sinks: Dict[int, "ScribeSink"] = {}
+        self.active_sinks: Dict[int, ScribeSink] = {}
 
         self.cut_timers: Dict[int, asyncio.Task] = {}
 
@@ -31,13 +31,15 @@ class SessionManager:
 
     # -------- sinks --------
 
-    def register_sink(self, guild_id: int, sink: object) -> None:
+    def register_sink(self, guild_id: int, sink: ScribeSink) -> None:
         self.active_sinks[guild_id] = sink
 
-    def get_sink(self, guild_id: int) -> Optional["ScribeSink"]:
+    def get_sink(self, guild_id: int) -> Optional[ScribeSink]:
         return self.active_sinks.get(guild_id)
 
     def remove_sink(self, guild_id: int) -> None:
+        self.cancel_cut_timer(guild_id)
+
         sink = self.active_sinks.pop(guild_id, None)
 
         if sink:
