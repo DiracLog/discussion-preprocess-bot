@@ -44,7 +44,7 @@ class ScribeSink(voice_recv.AudioSink):
             if self.packet_counters[uid] >= self.flush_threshold:
                 self.flush_to_disk(uid)
 
-        except Exception:
+        except Exception as e:
             print(f"ScribeSink decode error: {e}")
 
     def flush_to_disk(self, uid):

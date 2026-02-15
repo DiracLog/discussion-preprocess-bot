@@ -15,13 +15,19 @@ from bott.commands import join, cut, summarize, ask, stop
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 
+# ------------ Bot Class --------------
+
+class ScribeBot(commands.Bot):
+    session_manager: SessionManager
+    orchestrator: ScribeOrchestrator
+
 # ---------------- BOT ----------------
 
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = ScribeBot(command_prefix="!", intents=intents)
 
 # ---------------- SERVICES ----------------
 
@@ -35,8 +41,8 @@ orchestrator = ScribeOrchestrator(
     session_manager
 )
 
-bot.session_manager: SessionManager = session_manager
-bot.orchestrator: ScribeOrchestrator = orchestrator
+bot.session_manager = session_manager
+bot.orchestrator = orchestrator
 
 # ---------------- EVENTS ----------------
 
