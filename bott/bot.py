@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from ai.ai_manager import initialize_ai
 from core.session_manager import SessionManager
 from core.orchestrator import ScribeOrchestrator
+from typing import Callable, Awaitable
 
 from bott.commands import join, cut, summarize, ask, stop
 
@@ -20,6 +21,7 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 class ScribeBot(commands.Bot):
     session_manager: SessionManager
     orchestrator: ScribeOrchestrator
+    auto_cut_callback: Callable[[int], Awaitable[None]]
 
 # ---------------- BOT ----------------
 
@@ -52,8 +54,18 @@ async def on_ready():
     await bot.tree.sync()
     print("🌐 Slash commands synced.")
 
-# ---------------- COMMAND REGISTRATION ----------------
+async def auto_cut_callback(guild_id: int):
+    guild = bot.get_guild(guild_id)
+    sink = bot.session_manager.get_sink(guild_id)
 
+    if not guild or not sink:
+        return
+
+    files = sink.save_and_clear_buffers()
+    await bot.orchestrator.process_cut(guild, files)
+
+bot.auto_cut_callback = auto_cut_callback
+# ---------------- COMMAND REGISTRATION ----------------
 bot.tree.command(
     name="join",
     description="Join the voice channel and start recording"

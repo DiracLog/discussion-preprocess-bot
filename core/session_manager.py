@@ -1,6 +1,7 @@
 import collections
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any, Callable, Awaitable
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +13,8 @@ class SessionManager:
 
         # guild_id -> active ScribeSink
         self.active_sinks: Dict[int, object] = {}
+
+        self.cut_timers: Dict[int, asyncio.Task] = {}
 
     # -------- transcript --------
 
@@ -41,6 +44,31 @@ class SessionManager:
                 sink.cleanup()
             except Exception as e:
                 logger.error(f"Sink cleanup failed: {e}")
+
+    # -------- auto-cut timers --------
+
+    def reset_cut_timer(
+            self,
+            guild_id: int,
+            callback: Callable[[int], Awaitable[None]],
+            delay_seconds: int = 1800
+    ):
+        """
+        Resets inactivity timer for automatic cut.
+        """
+
+        self.cancel_cut_timer(guild_id)
+
+        async def timer():
+            await asyncio.sleep(delay_seconds)
+            await callback(guild_id)
+
+        self.cut_timers[guild_id] = asyncio.create_task(timer())
+
+    def cancel_cut_timer(self, guild_id: int):
+        task = self.cut_timers.pop(guild_id, None)
+        if task:
+            task.cancel()
 
     def cleanup_all(self) -> None:
         for gid in list(self.active_sinks.keys()):

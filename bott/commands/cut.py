@@ -23,6 +23,11 @@ async def run(interaction: discord.Interaction):
 
     text = await bot.orchestrator.process_cut(interaction.guild, files)
 
+    bot.session_manager.reset_cut_timer(
+        guild_id,
+        bot.auto_cut_callback
+    )
+
     if not text:
         await interaction.followup.send("🔇 No speech detected.")
         return

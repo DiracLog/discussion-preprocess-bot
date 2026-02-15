@@ -34,4 +34,8 @@ async def run(interaction: discord.Interaction):
     bot.session_manager.register_sink(guild_id, sink)
     vc.listen(sink)
 
+    bot.session_manager.reset_cut_timer(
+        guild_id,
+        bot.auto_cut_callback
+    )
     await interaction.followup.send("🎙️ Listening started.")
