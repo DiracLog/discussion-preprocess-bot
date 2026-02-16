@@ -23,25 +23,25 @@ def initialize_ai() -> AIContainer:
 
     logging.info("⏳ Initializing AI services...")
 
+    transcriber_mode = os.getenv("TRANSCRIBER_MODE", "local")
+    analyst_mode = os.getenv("ANALYST_MODE", "local")
 
-    ai_mode = os.getenv("AI_MODE", "local")
-    # Important: configure CUDA paths first
-
-
-    if ai_mode == "api":
-        from ai.api.transcriber_api import APITranscriber
-        from ai.api.analyst_api import APIAnalyst
-
-        transcriber = APITranscriber()
-        analyst = APIAnalyst()
-
-    else:
+    if "local" in [transcriber_mode, analyst_mode]:
         from audio.gpu_setup import setup_windows_cuda_paths
-        from audio.transcriber import Transcriber
-        from ai.engine.analyst import StructureAnalyst
-
         setup_windows_cuda_paths()
+
+    if transcriber_mode == "api":
+        from ai.api.transcriber_api import APITranscriber
+        transcriber = APITranscriber()
+    else:
+        from audio.transcriber import Transcriber
         transcriber = Transcriber()
+
+    if analyst_mode == "api":
+        from ai.api.analyst_api import APIAnalyst
+        analyst = APIAnalyst()
+    else:
+        from ai.engine.analyst import StructureAnalyst
         analyst = StructureAnalyst()
 
     memory = StorageMind()
