@@ -76,3 +76,7 @@ class SessionManager:
     def cleanup_all(self) -> None:
         for gid in list(self.active_sinks.keys()):
             self.remove_sink(gid)
+
+        for task in self.cut_timers.values():
+            task.cancel()
+        self.cut_timers.clear()

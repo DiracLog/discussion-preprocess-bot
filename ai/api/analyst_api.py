@@ -1,0 +1,2 @@
+class APIAnalyst:
+    pass
