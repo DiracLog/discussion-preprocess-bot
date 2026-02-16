@@ -1,9 +1,7 @@
 import logging
 import os
 
-from audio.gpu_setup import setup_windows_cuda_paths
-from audio.transcriber import Transcriber
-from ai.engine.analyst import StructureAnalyst
+
 from storage.memory import StorageMind
 
 
@@ -38,10 +36,11 @@ def initialize_ai() -> AIContainer:
         analyst = APIAnalyst()
 
     else:
-        setup_windows_cuda_paths()
+        from audio.gpu_setup import setup_windows_cuda_paths
         from audio.transcriber import Transcriber
         from ai.engine.analyst import StructureAnalyst
 
+        setup_windows_cuda_paths()
         transcriber = Transcriber()
         analyst = StructureAnalyst()
 
