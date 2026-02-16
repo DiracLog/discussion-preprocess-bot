@@ -16,11 +16,11 @@ class StructureAnalyst:
 
 
         # Build components
-        loader = ModelLoader(config)
+        loader = ModelLoader(self.config)
         llm = loader.load()
 
-        self.inference = InferenceEngine(llm, config)
-        self.chunker = TextChunker(config.chunk_size, config.overlap)
+        self.inference = InferenceEngine(llm, self.config)
+        self.chunker = TextChunker(self.config.chunk_size, self.config.overlap)
         self.parser = JSONParser()
 
     # -------- Public API --------
