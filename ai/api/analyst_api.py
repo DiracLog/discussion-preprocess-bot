@@ -1,6 +1,6 @@
 import requests
 import os
-
+from ai.engine.prompts import PromptBuilder
 
 class APIAnalyst:
 
@@ -9,13 +9,20 @@ class APIAnalyst:
         self.token = os.getenv("ANALYST_API_TOKEN")
 
     def smart_summarize(self, text: str) -> dict:
+        prompt = PromptBuilder.build_main_prompt(text, is_notes=False)
+
         response = requests.post(
             self.endpoint,
-            headers={"Authorization": f"Bearer {self.token}"},
-            json={"text": text}
+            headers={
+                "Authorization": f"Bearer {self.token}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "prompt": prompt
+            },
+            timeout=120
         )
 
-        if response.status_code != 200:
-            return {"reviews": []}
+        response.raise_for_status()
 
         return response.json()

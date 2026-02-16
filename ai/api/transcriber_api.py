@@ -13,10 +13,10 @@ class APITranscriber:
             response = requests.post(
                 self.endpoint,
                 headers={"Authorization": f"Bearer {self.token}"},
-                files={"file": f}
+                files={"file": f},
+                timeout=120
             )
 
-        if response.status_code != 200:
-            return ""
+        response.raise_for_status()
 
         return response.json().get("text", "")
