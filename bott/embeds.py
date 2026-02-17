@@ -2,9 +2,9 @@ import discord
 from datetime import datetime
 
 def create_session_report_embed(full_analysis, channel_members, session_id):
-    reviews = full_analysis.get('reviews', [])
+    topics = full_analysis.get("topics", [])
 
-    if not reviews:
+    if not topics:
         return discord.Embed(
             title="⚠️ Analysis Empty",
             description="No topics detected.",
@@ -15,28 +15,49 @@ def create_session_report_embed(full_analysis, channel_members, session_id):
 
     embed = discord.Embed(
         title=f"🎙️ Club Meeting Report ({datetime.now().strftime('%Y-%m-%d')})",
-        description=f"**Speakers:** {participants}\n**Topics:** {len(reviews)}",
+        description=f"**Speakers:** {participants}\n**Topics:** {len(topics)}",
         color=0x3498db
     )
 
-    for r in reviews[:24]:
-        title = r.get("title", "Unknown")
+    field_counter = 0
+
+    for topic in topics:
+        title = topic.get("title", "Unknown")
         if isinstance(title, list):
             title = title[0]
 
-        mark = r.get("mark", "-")
+        discussions = topic.get("discussions", [])
 
-        arguments = r.get("arguments", [])
-        if isinstance(arguments, str):
-            arguments = [arguments]
+        for discussion in discussions:
+            if field_counter >= 24:
+                embed.add_field(
+                    name="...",
+                    value="*(More topics in full logs)*",
+                    inline=False
+                )
+                embed.set_footer(text=f"Session ID: {session_id}")
+                return embed
 
-        args = "\n".join(f"• {a}" for a in arguments[:3])
+            speaker = discussion.get("speaker", "Unknown")
+            mark = discussion.get("mark", "-")
 
-        embed.add_field(
-            name=f"{title} ({mark}/10)",
-            value=args or "-",
-            inline=False
-        )
+            arguments = discussion.get("arguments", [])
+            if isinstance(arguments, str):
+                arguments = [arguments]
+
+            shown = arguments[:5]
+            args = "\n".join(f"• {a}" for a in shown)
+
+            if len(arguments) > 5:
+                args += f"\n… and {len(arguments) - 5} more"
+
+            embed.add_field(
+                name=f"{title} — {speaker}",
+                value=f"**Mark:** {mark}/10\n{args or '-'}",
+                inline=False
+            )
+
+            field_counter += 1
 
     embed.set_footer(text=f"Session ID: {session_id}")
     return embed

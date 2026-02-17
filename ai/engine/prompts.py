@@ -27,25 +27,30 @@ class PromptBuilder:
         )
 
         return f"""[INST]
-                    Ти - аналітик книжкового клубу.
-                    {input_desc}
-                    
-                    Формат виводу: ТІЛЬКИ валідний JSON:
-                    
-                    {{
-                      "reviews": [
-                        {{
-                          "title": "Назва твору",
-                          "type": "book/movie/game/series",
-                          "sentiment": "positive/negative/mixed",
-                          "arguments": [],
-                          "mark": 8.5,
-                          "is_inferred_score": true,
-                          "speaker": "Ім'я"
-                        }}
-                      ]
-                    }}
-                    
-                    ТЕКСТ:
-                    {text}
-                    [/INST]"""
+        Ти - аналітик книжкового клубу.
+        {input_desc}
+
+        Формат виводу: ТІЛЬКИ валідний JSON:
+
+        {{
+          "topics": [
+            {{
+              "title": "Назва твору",
+              "type": "book/movie/game/series",
+              "discussions": [
+                {{
+                  "speaker": "Ім'я",
+                  "sentiment": "positive/negative/mixed",
+                  "arguments": [],
+                  "mark": 8.5,
+                  "is_inferred_score": true
+                }}
+              ]
+            }}
+          ]
+        }}
+
+        ТЕКСТ:
+        {text}
+        [/INST]"""
+
