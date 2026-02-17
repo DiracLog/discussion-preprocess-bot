@@ -20,7 +20,7 @@ class JSONParser:
                 return json.loads(clean)
             except Exception:
                 self.logger.error(f"Failed to parse JSON:\n{text}")
-                return {"reviews": []}
+                return {"topics": []}
 
     @staticmethod
     def _clean_json_string(text: str) -> str:
