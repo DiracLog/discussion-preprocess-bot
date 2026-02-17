@@ -49,7 +49,15 @@ class StructureAnalyst:
             summaries.append(str(result))
 
         combined = "\n".join(summaries)
-        return self._analyze(combined, is_notes=True)
+
+        combined_notes = f"""
+        Нижче наведені витягнуті нотатки сегментів (JSON fragments).
+        Об'єднай їх, згрупуй за темами і спікерами та сформуй фінальний аналіз.
+        
+        NOTES:
+        {combined}
+        """
+        return self._analyze(combined_notes, is_notes=True)
 
     def _analyze(self, text: str, is_notes: bool = False) -> dict:
         prompt = PromptBuilder.build_main_prompt(text, is_notes)
