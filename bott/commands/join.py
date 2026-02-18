@@ -3,8 +3,9 @@ import shutil
 import discord
 from discord.ext import voice_recv
 from audio.sink import ScribeSink
+from bott.utils.ai_guard import ensure_ai_ready
 
-
+@ensure_ai_ready
 async def run(interaction: discord.Interaction):
     bot = interaction.client
     guild_id = interaction.guild_id
@@ -14,6 +15,7 @@ async def run(interaction: discord.Interaction):
         return
 
     await interaction.response.defer()
+    await bot.ensure_ai_loaded(bot)
 
     if not interaction.guild:
         await interaction.followup.send("⚠️ Guild not found.")

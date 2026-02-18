@@ -3,8 +3,6 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
-
-from ai.ai_manager import initialize_ai
 from core.session_manager import SessionManager
 from core.orchestrator import ScribeOrchestrator
 from typing import Callable, Awaitable
@@ -33,18 +31,8 @@ bot = ScribeBot(command_prefix="!", intents=intents)
 
 # ---------------- SERVICES ----------------
 
-ai = initialize_ai()
-session_manager = SessionManager()
-
-orchestrator = ScribeOrchestrator(
-    ai.transcriber,
-    ai.analyst,
-    ai.memory,
-    session_manager
-)
-
-bot.session_manager = session_manager
-bot.orchestrator = orchestrator
+bot.session_manager = SessionManager()
+bot.orchestrator = None
 
 # ---------------- EVENTS ----------------
 
@@ -63,6 +51,22 @@ async def auto_cut_callback(guild_id: int):
 
     files = sink.save_and_clear_buffers()
     await bot.orchestrator.process_cut(guild, files)
+
+# lazy loader
+async def ensure_ai_loaded(bot):
+    if bot.orchestrator is None:
+        from ai.ai_manager import initialize_ai
+
+        ai = initialize_ai()
+
+        bot.orchestrator = ScribeOrchestrator(
+            ai.transcriber,
+            ai.analyst,
+            ai.memory,
+            bot.session_manager
+        )
+
+bot.ensure_ai_loaded = ensure_ai_loaded.__get__(bot)
 
 bot.auto_cut_callback = auto_cut_callback
 # ---------------- COMMAND REGISTRATION ----------------

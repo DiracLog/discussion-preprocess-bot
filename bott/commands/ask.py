@@ -1,6 +1,7 @@
 import discord
+from bott.utils.ai_guard import ensure_ai_ready
 
-
+@ensure_ai_ready
 async def run(
     interaction: discord.Interaction,
     query: str,
@@ -9,6 +10,7 @@ async def run(
     bot = interaction.client
 
     await interaction.response.defer()
+    await bot.ensure_ai_loaded(bot)
 
     filter_user = user.display_name if user else None
     results = await bot.orchestrator.search(query, filter_user)

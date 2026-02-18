@@ -9,3 +9,4 @@ webrtcvad-wheels
 discord-ext-voice-recv
 llama-cpp-python
 requests
+tenacity
