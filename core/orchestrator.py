@@ -78,6 +78,7 @@ class ScribeOrchestrator:
 
         logger.info("Summarize called. Transcript length: %d chars", len(full_text))
 
+        logger.info("TEXT SENT TO ANALYST:\n%s", full_text)
         def analysis():
             return self.analyst.smart_summarize(full_text)
 
@@ -88,7 +89,16 @@ class ScribeOrchestrator:
             logger.warning("Analyst returned no topics — creating fallback topic")
             result = result or {}
             result["topics"] = [
-                {"title": "General discussion", "points": []}
+                {
+                    "title": "General discussion",
+                    "discussions": [
+                        {
+                            "speaker": "System",
+                            "mark": "-",
+                            "arguments": ["Transcript quality too low for detailed topic extraction."]
+                        }
+                    ]
+                }
             ]
 
         # ---------- COLD STORAGE ----------

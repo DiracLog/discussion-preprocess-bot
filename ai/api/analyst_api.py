@@ -50,5 +50,9 @@ class APIAnalyst:
             return {}
 
         raw = choices[0].get("message", {}).get("content", "")
-        return self.parser.parse(raw)
+        logger.info("RAW ANALYST RESPONSE:\n%s", raw)
+
+        parsed = self.parser.parse(raw)
+        logger.info("PARSED ANALYSIS:\n%s", parsed)
+        return parsed
 
