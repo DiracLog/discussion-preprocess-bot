@@ -27,17 +27,21 @@ class ScribeOrchestrator:
             guild: discord.Guild,
             files: List[Tuple[int, str]]
     ) -> str:
+
         user_names = {}
         for user_id, _ in files:
             if user_id not in user_names:
                 member = guild.get_member(user_id)
-                user_names[user_id] = member.display_name if member else f"User_{user_id}"
+                user_names[user_id] = (
+                    member.display_name if member else f"User_{user_id}"
+                )
 
         def task():
             transcriptions = []
             entries = []
             user_files = defaultdict(list)
 
+            # Group files per user
             for user_id, path in files:
                 if os.path.exists(path):
                     user_files[user_id].append(path)
@@ -49,50 +53,110 @@ class ScribeOrchestrator:
                 merged_path = f"temp_merged_{user_id}_{uuid4().hex}.wav"
 
                 try:
+                    if not file_list:
+                        continue
+
+                    # Read params from first valid file
                     with wave.open(file_list[0], "rb") as first:
                         params = first.getparams()
 
-                    frames_written = False
+                    total_duration = 0.0
 
                     with wave.open(merged_path, "wb") as output:
                         output.setparams(params)
 
                         for path in file_list:
-                            # ~20KB threshold to drop empty/tiny clips
-                            if os.path.getsize(path) < 20000:
-                                continue
+                            try:
+                                with wave.open(path, "rb") as w:
+                                    # Skip mismatched formats
+                                    if w.getparams() != params:
+                                        logger.warning(
+                                            "Param mismatch for %s, skipping", path
+                                        )
+                                        continue
 
-                            with wave.open(path, "rb") as w:
-                                if w.getparams() != params:
-                                    continue
+                                    frames = w.readframes(w.getnframes())
+                                    if not frames:
+                                        continue
 
-                                while chunk := w.readframes(4096):
-                                    output.writeframes(chunk)
-                                    frames_written = True
+                                    duration = w.getnframes() / w.getframerate()
 
-                    if not frames_written:
+                                    # Ignore ultra tiny clips (< 0.25 sec)
+                                    if duration < 0.25:
+                                        continue
+
+                                    output.writeframes(frames)
+                                    total_duration += duration
+
+                            except Exception as e:
+                                logger.error(
+                                    "Error reading wav %s: %s", path, e
+                                )
+
+                    # If nothing meaningful was merged → skip
+                    if total_duration < 0.3:
+                        logger.info(
+                            "User %s skipped (merged duration %.2fs)",
+                            name,
+                            total_duration
+                        )
                         continue
 
-                    text = self.transcriber.transcribe_file(merged_path).strip()
+                    logger.info(
+                        "Merged duration for %s: %.2fs",
+                        name,
+                        total_duration
+                    )
+
+                    text = (
+                        self.transcriber
+                        .transcribe_file(merged_path)
+                        .strip()
+                    )
 
                     if text:
                         timestamp = datetime.now().strftime("%H:%M:%S")
-                        entries.append((guild.id, f"[{timestamp}] {name}: {text}"))
+                        entry = f"[{timestamp}] {name}: {text}"
+
+                        entries.append((guild.id, entry))
                         transcriptions.append(f"**{name}:** {text}")
 
+                    else:
+                        logger.info(
+                            "Empty transcription for %s (%.2fs audio)",
+                            name,
+                            total_duration
+                        )
+
                 except Exception as e:
-                    logger.error("process_cut error for user %s: %s", user_id, e)
+                    logger.error(
+                        "process_cut error for user %s: %s",
+                        user_id,
+                        e
+                    )
 
                 finally:
+                    # Clean temp merged file
                     if os.path.exists(merged_path):
                         os.remove(merged_path)
 
+                    # Move processed chunks
                     for path in file_list:
                         try:
                             if os.path.exists(path):
-                                shutil.move(path, os.path.join("processed", os.path.basename(path)))
+                                shutil.move(
+                                    path,
+                                    os.path.join(
+                                        "processed",
+                                        os.path.basename(path)
+                                    )
+                                )
                         except Exception as move_error:
-                            logger.error("Failed to move file %s: %s", path, move_error)
+                            logger.error(
+                                "Failed to move file %s: %s",
+                                path,
+                                move_error
+                            )
 
             return transcriptions, entries
 
