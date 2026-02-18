@@ -3,6 +3,7 @@ import requests
 import logging
 from tenacity import retry, stop_after_attempt, wait_exponential
 from ai.engine.parser import JSONParser
+from ai.engine.prompts import PromptBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -33,12 +34,13 @@ class APIAnalyst:
         return response.json()
 
     def smart_summarize(self, text: str) -> dict:
+        prompt = PromptBuilder.build_main_prompt(text, is_notes=False)
+
         payload = {
             "model": self.model,
             "temperature": 0,
             "messages": [
-                {"role": "system", "content": "You are an analytical meeting summarizer. Output ONLY valid JSON."},
-                {"role": "user", "content": text}
+                {"role": "user", "content": prompt}
             ]
         }
 
@@ -54,5 +56,6 @@ class APIAnalyst:
 
         parsed = self.parser.parse(raw)
         logger.info("PARSED ANALYSIS:\n%s", parsed)
+
         return parsed
 
