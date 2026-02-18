@@ -27,8 +27,6 @@ class ScribeOrchestrator:
         loop = asyncio.get_running_loop()
         guild_id = guild.id
 
-        processed_paths = []  # <-- add this
-
         def task():
             results = []
 
@@ -55,7 +53,6 @@ class ScribeOrchestrator:
                     new_path = os.path.join("processed", os.path.basename(filepath))
                     shutil.move(filepath, new_path)
 
-                    processed_paths.append(new_path)  # <-- store
 
                 except Exception as e:
                     self.logger.error(f"process_cut error: {e}")
@@ -65,10 +62,6 @@ class ScribeOrchestrator:
 
         result_text = await loop.run_in_executor(None, task)
 
-        # DEBUG: send one processed file
-        if processed_paths:
-            channel = guild.system_channel or guild.text_channels[0]
-            await channel.send(file=discord.File(processed_paths[0]))
 
         return result_text
 
@@ -83,10 +76,18 @@ class ScribeOrchestrator:
         loop = asyncio.get_running_loop()
         full_text = "\n".join(history)
 
+        logger.info("Summarize called. Transcript length: %d chars", len(full_text))
+
         def analysis():
             return self.analyst.smart_summarize(full_text)
 
         result = await loop.run_in_executor(None, analysis)
+
+        # ---------- fallback if analyst produced empty topics ----------
+        if not result or not result.get("topics"):
+            logger.warning("Analyst returned no topics — creating fallback topic")
+            result = result or {}
+            result.setdefault("topics", ["General discussion"])
 
         # ---------- COLD STORAGE ----------
         log_id = self.memory.archive_session_log(
