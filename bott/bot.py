@@ -20,8 +20,6 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 
 # ------------ Bot Class --------------
 
-
-
 class ScribeBot(commands.Bot):
     session_manager: SessionManager
     orchestrator: ScribeOrchestrator
@@ -74,7 +72,6 @@ async def on_ready():
     print("🌐 Slash commands synced.")
 
 async def auto_cut_callback(guild_id: int):
-    await bot.ensure_ai_loaded()
 
     guild = bot.get_guild(guild_id)
     sink = bot.session_manager.get_sink(guild_id)
