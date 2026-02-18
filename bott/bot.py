@@ -75,8 +75,6 @@ async def auto_cut_callback(guild_id: int):
     files = sink.save_and_clear_buffers()
     await bot.orchestrator.process_cut(guild, files)
 
-bot.ensure_ai_loaded = _ensure
-
 bot.auto_cut_callback = auto_cut_callback
 # ---------------- COMMAND REGISTRATION ----------------
 bot.tree.command(
