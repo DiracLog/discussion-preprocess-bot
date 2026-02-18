@@ -27,7 +27,8 @@ class APITranscriber:
                 },
                 data={
                     "model": self.model,
-                    "language": "uk"
+                    "language": "uk",
+                    "prompt": "The following audio is Ukrainian."
                 },
                 timeout=120
             )
