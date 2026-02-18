@@ -71,7 +71,10 @@ async def ensure_ai_loaded(bot):
         )
         logger.info("AI services initialized")
 
-bot.ensure_ai_loaded = lambda: ensure_ai_loaded(bot)
+async def _ensure():
+    await ensure_ai_loaded(bot)
+
+bot.ensure_ai_loaded = _ensure
 
 bot.auto_cut_callback = auto_cut_callback
 # ---------------- COMMAND REGISTRATION ----------------

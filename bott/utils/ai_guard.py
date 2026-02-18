@@ -15,4 +15,5 @@ def ensure_ai_ready(func):
         await bot.ensure_ai_loaded()
         return await func(interaction, *args, **kwargs)
 
+    logger.info("AI guard decorator attached")
     return wrapper
