@@ -27,6 +27,8 @@ class ScribeOrchestrator:
         loop = asyncio.get_running_loop()
         guild_id = guild.id
 
+        processed_paths = []  # <-- add this
+
         def task():
             results = []
 
@@ -50,7 +52,10 @@ class ScribeOrchestrator:
                         results.append(f"**{name}:** {text}")
 
                     os.makedirs("processed", exist_ok=True)
-                    shutil.move(filepath, os.path.join("processed", os.path.basename(filepath)))
+                    new_path = os.path.join("processed", os.path.basename(filepath))
+                    shutil.move(filepath, new_path)
+
+                    processed_paths.append(new_path)  # <-- store
 
                 except Exception as e:
                     self.logger.error(f"process_cut error: {e}")
@@ -60,11 +65,10 @@ class ScribeOrchestrator:
 
         result_text = await loop.run_in_executor(None, task)
 
-        # DEBUG: send one audio file to inspect
-        if files:
-            _, debug_path = files[0]
+        # DEBUG: send one processed file
+        if processed_paths:
             channel = guild.system_channel or guild.text_channels[0]
-            await channel.send(file=discord.File(debug_path))
+            await channel.send(file=discord.File(processed_paths[0]))
 
         return result_text
 
