@@ -8,6 +8,7 @@ from core.orchestrator import ScribeOrchestrator
 from typing import Callable, Awaitable
 
 from bott.commands import join, cut, summarize, ask, stop
+from ai.ai_manager import initialize_ai
 
 import logging
 logger = logging.getLogger(__name__)
@@ -18,6 +19,8 @@ load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 
 # ------------ Bot Class --------------
+
+
 
 class ScribeBot(commands.Bot):
     session_manager: SessionManager
@@ -53,7 +56,14 @@ bot = ScribeBot(command_prefix="!", intents=intents)
 # ---------------- SERVICES ----------------
 
 bot.session_manager = SessionManager()
-bot.orchestrator = None
+ai = initialize_ai()
+
+bot.orchestrator = ScribeOrchestrator(
+    ai.transcriber,
+    ai.analyst,
+    ai.memory,
+    bot.session_manager
+)
 
 # ---------------- EVENTS ----------------
 

@@ -7,7 +7,6 @@ async def run(
     user: discord.Member | None = None
 ):
     bot = interaction.client
-    await bot.ensure_ai_loaded()
 
     await interaction.response.defer()
 

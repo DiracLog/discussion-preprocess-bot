@@ -6,7 +6,6 @@ from audio.sink import ScribeSink
 
 async def run(interaction: discord.Interaction):
     bot = interaction.client
-    await bot.ensure_ai_loaded()
     guild_id = interaction.guild_id
 
     if not interaction.user.voice:
