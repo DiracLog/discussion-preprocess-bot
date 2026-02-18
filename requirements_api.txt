@@ -1,0 +1,6 @@
+chromadb
+discord.py
+python-dotenv
+discord-ext-voice-recv
+requests
+tenacity
