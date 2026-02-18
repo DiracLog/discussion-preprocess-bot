@@ -87,7 +87,9 @@ class ScribeOrchestrator:
         if not result or not result.get("topics"):
             logger.warning("Analyst returned no topics — creating fallback topic")
             result = result or {}
-            result.setdefault("topics", ["General discussion"])
+            result["topics"] = [
+                {"title": "General discussion", "points": []}
+            ]
 
         # ---------- COLD STORAGE ----------
         log_id = self.memory.archive_session_log(
