@@ -27,12 +27,15 @@ class APIAnalyst:
             json=payload,
             timeout=60
         )
+        if not response.ok:
+            logger.error("Analyst API error: %s", response.text)
         response.raise_for_status()
         return response.json()
 
     def smart_summarize(self, text: str) -> dict:
         payload = {
             "model": self.model,
+            "temperature": 0,
             "messages": [
                 {"role": "system", "content": "You are an analytical meeting summarizer. Output ONLY valid JSON."},
                 {"role": "user", "content": text}
@@ -41,5 +44,11 @@ class APIAnalyst:
 
         data = self._request(payload)
 
-        raw = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        choices = data.get("choices", [])
+        if not choices:
+            logger.error("Empty analyst response: %s", data)
+            return {}
+
+        raw = choices[0].get("message", {}).get("content", "")
         return self.parser.parse(raw)
+

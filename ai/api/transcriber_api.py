@@ -22,7 +22,7 @@ class APITranscriber:
                     "Authorization": f"Bearer {self.token}"
                 },
                 files={
-                    "file": f
+                    "file": (os.path.basename(file_path), f, "audio/wav")
                 },
                 data={
                     "model": self.model
@@ -30,6 +30,8 @@ class APITranscriber:
                 timeout=120
             )
 
+        if not response.ok:
+            logger.error("Transcribe failed: %s", response.text)
         response.raise_for_status()
         return response.json()
 
