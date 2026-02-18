@@ -24,6 +24,24 @@ class ScribeBot(commands.Bot):
     orchestrator: ScribeOrchestrator
     auto_cut_callback: Callable[[int], Awaitable[None]]
 
+    async def ensure_ai_loaded(self):
+        if self.orchestrator is not None:
+            return
+
+        logger.info("Lazy initializing AI services")
+        from ai.ai_manager import initialize_ai
+
+        ai = initialize_ai()
+
+        self.orchestrator = ScribeOrchestrator(
+            ai.transcriber,
+            ai.analyst,
+            ai.memory,
+            self.session_manager
+        )
+
+        logger.info("AI services initialized")
+
 # ---------------- BOT ----------------
 
 intents = discord.Intents.default()
@@ -46,6 +64,8 @@ async def on_ready():
     print("🌐 Slash commands synced.")
 
 async def auto_cut_callback(guild_id: int):
+    await bot.ensure_ai_loaded()
+
     guild = bot.get_guild(guild_id)
     sink = bot.session_manager.get_sink(guild_id)
 
@@ -54,25 +74,6 @@ async def auto_cut_callback(guild_id: int):
 
     files = sink.save_and_clear_buffers()
     await bot.orchestrator.process_cut(guild, files)
-
-# lazy loader
-async def ensure_ai_loaded(bot):
-    if bot.orchestrator is None:
-        logger.info("Lazy initializing AI services")
-        from ai.ai_manager import initialize_ai
-
-        ai = initialize_ai()
-
-        bot.orchestrator = ScribeOrchestrator(
-            ai.transcriber,
-            ai.analyst,
-            ai.memory,
-            bot.session_manager
-        )
-        logger.info("AI services initialized")
-
-async def _ensure():
-    await ensure_ai_loaded(bot)
 
 bot.ensure_ai_loaded = _ensure
 

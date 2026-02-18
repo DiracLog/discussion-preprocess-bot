@@ -1,13 +1,13 @@
 import discord
-from bott.utils.ai_guard import ensure_ai_ready
 
-@ensure_ai_ready
+
 async def run(
     interaction: discord.Interaction,
     query: str,
     user: discord.Member | None = None
 ):
     bot = interaction.client
+    await bot.ensure_ai_loaded()
 
     await interaction.response.defer()
 

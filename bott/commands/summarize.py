@@ -1,10 +1,9 @@
 import discord
 from bott.embeds import create_session_report_embed
-from bott.utils.ai_guard import ensure_ai_ready
 
-@ensure_ai_ready
 async def run(interaction: discord.Interaction):
     bot = interaction.client
+    await bot.ensure_ai_loaded()
     guild_id = interaction.guild_id
 
     await interaction.response.defer()

@@ -3,11 +3,10 @@ import shutil
 import discord
 from discord.ext import voice_recv
 from audio.sink import ScribeSink
-from bott.utils.ai_guard import ensure_ai_ready
 
-@ensure_ai_ready
 async def run(interaction: discord.Interaction):
     bot = interaction.client
+    await bot.ensure_ai_loaded()
     guild_id = interaction.guild_id
 
     if not interaction.user.voice:
