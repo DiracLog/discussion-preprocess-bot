@@ -6,6 +6,8 @@ import logging
 from typing import List, Tuple
 import discord
 
+logger = logging.getLogger(__name__)
+
 class ScribeOrchestrator:
 
     def __init__(self, transcriber, analyst, memory, session_manager):
@@ -33,6 +35,12 @@ class ScribeOrchestrator:
                     member = guild.get_member(user_id)
                     name = member.display_name if member else f"User_{user_id}"
 
+                    logger.info(
+                        "Sending file to STT: %s (size=%d bytes)",
+                        filepath,
+                        os.path.getsize(filepath)
+                    )
+
                     text = self.transcriber.transcribe_file(filepath)
 
                     if text.strip():
@@ -50,7 +58,15 @@ class ScribeOrchestrator:
 
             return "\n".join(results)
 
-        return await loop.run_in_executor(None, task)
+        result_text = await loop.run_in_executor(None, task)
+
+        # DEBUG: send one audio file to inspect
+        if files:
+            _, debug_path = files[0]
+            channel = guild.system_channel or guild.text_channels[0]
+            await channel.send(file=discord.File(debug_path))
+
+        return result_text
 
     # ---------------- SUMMARIZE ----------------
 
