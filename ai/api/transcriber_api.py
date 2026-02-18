@@ -1,6 +1,7 @@
 import os
 import requests
 import logging
+
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 logger = logging.getLogger(__name__)
@@ -25,7 +26,8 @@ class APITranscriber:
                     "file": (os.path.basename(file_path), f, "audio/wav")
                 },
                 data={
-                    "model": self.model
+                    "model": self.model,
+                    "language": "uk"
                 },
                 timeout=120
             )
