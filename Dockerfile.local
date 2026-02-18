@@ -17,7 +17,7 @@ WORKDIR /app
 # ---------- Install Python dependencies ----------
 COPY requirements_local.txt .
 RUN pip install --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements_local.txt
 
 # ---------- Copy project ----------
 COPY . .
