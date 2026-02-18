@@ -21,7 +21,7 @@ def initialize_ai() -> AIContainer:
     Initializes all AI-related services once at startup.
     """
 
-    logging.info("⏳ Initializing AI services...")
+    logging.warning("⏳ Initializing AI services...")
 
     transcriber_mode = os.getenv("TRANSCRIBER_MODE", "local")
     analyst_mode = os.getenv("ANALYST_MODE", "local")
