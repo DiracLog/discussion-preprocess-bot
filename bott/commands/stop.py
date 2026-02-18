@@ -6,7 +6,6 @@ async def run(interaction: discord.Interaction):
     bot = interaction.client
     guild_id = interaction.guild_id
 
-    await bot.ensure_ai_loaded(bot)
     if not interaction.guild:
         await interaction.response.send_message("⚠️ Guild not found.", ephemeral=True)
         return

@@ -7,7 +7,6 @@ async def run(interaction: discord.Interaction):
     bot = interaction.client
     guild_id = interaction.guild_id
 
-
     await interaction.response.defer()
 
     await interaction.followup.send("🧠 Analyzing session...")

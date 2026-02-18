@@ -15,7 +15,6 @@ async def run(interaction: discord.Interaction):
         return
 
     await interaction.response.defer()
-    await bot.ensure_ai_loaded(bot)
 
     if not interaction.guild:
         await interaction.followup.send("⚠️ Guild not found.")

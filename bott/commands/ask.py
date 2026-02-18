@@ -10,7 +10,6 @@ async def run(
     bot = interaction.client
 
     await interaction.response.defer()
-    await bot.ensure_ai_loaded(bot)
 
     filter_user = user.display_name if user else None
     results = await bot.orchestrator.search(query, filter_user)
