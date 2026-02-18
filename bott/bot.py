@@ -9,6 +9,9 @@ from typing import Callable, Awaitable
 
 from bott.commands import join, cut, summarize, ask, stop
 
+import logging
+logger = logging.getLogger(__name__)
+
 # ---------------- ENV ----------------
 
 load_dotenv()
@@ -55,6 +58,7 @@ async def auto_cut_callback(guild_id: int):
 # lazy loader
 async def ensure_ai_loaded(bot):
     if bot.orchestrator is None:
+        logger.info("Lazy initializing AI services")
         from ai.ai_manager import initialize_ai
 
         ai = initialize_ai()
@@ -65,8 +69,9 @@ async def ensure_ai_loaded(bot):
             ai.memory,
             bot.session_manager
         )
+        logger.info("AI services initialized")
 
-bot.ensure_ai_loaded = ensure_ai_loaded.__get__(bot)
+bot.ensure_ai_loaded = lambda: ensure_ai_loaded(bot)
 
 bot.auto_cut_callback = auto_cut_callback
 # ---------------- COMMAND REGISTRATION ----------------
